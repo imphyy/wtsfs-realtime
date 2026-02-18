@@ -1,0 +1,29 @@
+# fly.toml - Fly.io deployment configuration for wtsfs-realtime
+# Deploy with: flyctl deploy
+
+app = "wtsfs-realtime"
+primary_region = "lhr"  # London — change to match your Neon DB region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  # DATABASE_URL and CLERK_JWKS_URL are set as Fly secrets:
+  # flyctl secrets set DATABASE_URL="postgresql://..." CLERK_JWKS_URL="https://..."
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # Keep alive — VTT sessions need persistent memory
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 400
+
+[[vm]]
+  size = "shared-cpu-1x"   # 256MB RAM — upgrade to "shared-cpu-2x" if needed
+  memory = "256mb"
