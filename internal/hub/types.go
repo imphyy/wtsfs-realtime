@@ -5,14 +5,15 @@ import "encoding/json"
 // Message is the wire format for all WebSocket messages.
 // The Payload field is left as raw JSON and decoded per-type by the session.
 type Message struct {
-	Type      string          `json:"type"`
-	CampaignID string         `json:"campaign_id"`
-	UserID    string          `json:"user_id"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Type       string          `json:"type"`
+	CampaignID string          `json:"campaign_id"`
+	UserID     string          `json:"user_id"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
 }
 
 // Message types sent by clients → server → other clients
 const (
+	// VTT types
 	TypeTokenAdd    = "token.add"
 	TypeTokenMove   = "token.move"
 	TypeTokenRemove = "token.remove"
@@ -21,11 +22,46 @@ const (
 	TypeMapSet      = "map.set"
 	TypePing        = "ping"
 	TypePong        = "pong"
-	TypeStateSync   = "state.sync"  // server → client on connect: full current state
+	TypeStateSync   = "state.sync" // server → client on connect: full current state
 	TypeError       = "error"
+
+	// Chat types
+	TypeChatSend    = "chat.send"    // client → server: send a new message
+	TypeChatMessage = "chat.message" // server → clients: a new message broadcast
+	TypeChatHistory = "chat.history" // server → client on connect: last 100 messages
 )
 
-// --- Payload types ---
+// --- Chat payload types ---
+
+// ChatSendPayload is sent by a client to post a new chat message.
+type ChatSendPayload struct {
+	MessageType string          `json:"message_type"`
+	Content     json.RawMessage `json:"content"`
+	GmOnly      bool            `json:"gm_only"`
+	RecipientID string          `json:"recipient_id,omitempty"`
+	CharacterID string          `json:"character_id,omitempty"`
+}
+
+// ChatMessagePayload is the full message broadcast to all clients.
+type ChatMessagePayload struct {
+	ID          string          `json:"id"`
+	CampaignID  string          `json:"campaign_id"`
+	UserID      string          `json:"user_id"`
+	Username    string          `json:"username,omitempty"`
+	CharacterID string          `json:"character_id,omitempty"`
+	RecipientID string          `json:"recipient_id,omitempty"`
+	MessageType string          `json:"message_type"`
+	Content     json.RawMessage `json:"content"`
+	GmOnly      bool            `json:"gm_only"`
+	CreatedAt   string          `json:"created_at"`
+}
+
+// ChatHistoryPayload is sent to a client on connect with recent messages.
+type ChatHistoryPayload struct {
+	Messages []ChatMessagePayload `json:"messages"`
+}
+
+// --- VTT payload types ---
 
 type TokenAddPayload struct {
 	TokenID     string  `json:"token_id"`
@@ -36,7 +72,7 @@ type TokenAddPayload struct {
 	Y           float64 `json:"y"`
 	Width       float64 `json:"width"`
 	Height      float64 `json:"height"`
-	Visible     bool    `json:"visible"`  // visible to players (GM can hide)
+	Visible     bool    `json:"visible"`
 }
 
 type TokenMovePayload struct {
@@ -50,12 +86,12 @@ type TokenRemovePayload struct {
 }
 
 type TokenUpdatePayload struct {
-	TokenID  string  `json:"token_id"`
-	Name     *string `json:"name,omitempty"`
-	ImageURL *string `json:"image_url,omitempty"`
+	TokenID  string   `json:"token_id"`
+	Name     *string  `json:"name,omitempty"`
+	ImageURL *string  `json:"image_url,omitempty"`
 	Width    *float64 `json:"width,omitempty"`
 	Height   *float64 `json:"height,omitempty"`
-	Visible  *bool   `json:"visible,omitempty"`
+	Visible  *bool    `json:"visible,omitempty"`
 }
 
 type FogZone struct {
@@ -73,7 +109,7 @@ type FogUpdatePayload struct {
 type MapSetPayload struct {
 	MapID    string  `json:"map_id"`
 	ImageURL string  `json:"image_url"`
-	GridSize float64 `json:"grid_size"` // pixels per grid cell
+	GridSize float64 `json:"grid_size"`
 	Width    float64 `json:"width"`
 	Height   float64 `json:"height"`
 }
@@ -98,12 +134,12 @@ type Token struct {
 }
 
 type SessionState struct {
-	CampaignID string             `json:"campaign_id"`
-	MapID      string             `json:"map_id,omitempty"`
-	MapURL     string             `json:"map_url,omitempty"`
-	GridSize   float64            `json:"grid_size"`
-	MapWidth   float64            `json:"map_width"`
-	MapHeight  float64            `json:"map_height"`
-	Tokens     map[string]*Token  `json:"tokens"`  // tokenId → Token
-	FogZones   []FogZone          `json:"fog_zones"`
+	CampaignID string            `json:"campaign_id"`
+	MapID      string            `json:"map_id,omitempty"`
+	MapURL     string            `json:"map_url,omitempty"`
+	GridSize   float64           `json:"grid_size"`
+	MapWidth   float64           `json:"map_width"`
+	MapHeight  float64           `json:"map_height"`
+	Tokens     map[string]*Token `json:"tokens"`
+	FogZones   []FogZone         `json:"fog_zones"`
 }
