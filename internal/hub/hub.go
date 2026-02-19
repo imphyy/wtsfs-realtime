@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/williamhunt/wtsfs-realtime/internal/persist"
 )
@@ -106,6 +107,59 @@ func (h *Hub) CloseIdleSessions() {
 			slog.Info("idle session closed", "campaign", id)
 		}
 	}
+}
+
+// BroadcastMessage persists a message and broadcasts it to all connected clients
+// in the campaign session (if one is active). Used by the internal HTTP API so
+// that Next.js server actions can trigger real-time events without a WebSocket.
+// If no session is active the message is still saved to DB — clients will see it
+// in their history on next connect.
+func (h *Hub) BroadcastMessage(campaignID, userID, messageType string, content []byte, gmOnly bool, recipientID, characterID string) error {
+	saved, err := h.store.SaveChatMessage(userID, campaignID, messageType, json.RawMessage(content), gmOnly, recipientID, characterID)
+	if err != nil {
+		return err
+	}
+
+	// Only broadcast if there's an active session with connected clients.
+	h.mu.RLock()
+	s, ok := h.sessions[campaignID]
+	h.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	outPayload, err := json.Marshal(ChatMessagePayload{
+		ID:          saved.ID,
+		CampaignID:  saved.CampaignID,
+		UserID:      saved.UserID,
+		Username:    saved.Username,
+		CharacterID: saved.CharacterID,
+		RecipientID: saved.RecipientID,
+		MessageType: saved.MessageType,
+		Content:     saved.Content,
+		GmOnly:      saved.GmOnly,
+		CreatedAt:   saved.CreatedAt.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+
+	outMsg := Message{
+		Type:       TypeChatMessage,
+		CampaignID: campaignID,
+		UserID:     userID,
+		Payload:    json.RawMessage(outPayload),
+	}
+
+	if gmOnly {
+		s.broadcastToGMs(outMsg)
+	} else if recipientID != "" {
+		s.broadcastWhisper(outMsg, userID, recipientID)
+	} else {
+		s.broadcast(outMsg, nil)
+	}
+
+	return nil
 }
 
 // Stats returns a snapshot of active session/client counts (for health endpoint).

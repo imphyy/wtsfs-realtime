@@ -66,6 +66,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/ws", ws.NewHandler(h, verifier, isGMFunc))
 	mux.HandleFunc("/health", ws.HealthHandler(h))
+	mux.HandleFunc("/internal/broadcast", ws.InternalHandler(h, cfg.InternalAPISecret))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wtsfs-realtime", http.StatusOK)
 	})
@@ -118,16 +119,18 @@ func main() {
 
 // config holds all runtime configuration loaded from environment variables.
 type config struct {
-	Port         string
-	DatabaseURL  string
-	ClerkJWKSURL string
+	Port              string
+	DatabaseURL       string
+	ClerkJWKSURL      string
+	InternalAPISecret string
 }
 
 func loadConfig() (*config, error) {
 	cfg := &config{
-		Port:         getEnv("PORT", "8080"),
-		DatabaseURL:  os.Getenv("DATABASE_URL"),
-		ClerkJWKSURL: os.Getenv("CLERK_JWKS_URL"),
+		Port:              getEnv("PORT", "8080"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		ClerkJWKSURL:      os.Getenv("CLERK_JWKS_URL"),
+		InternalAPISecret: os.Getenv("INTERNAL_API_SECRET"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -135,6 +138,9 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.ClerkJWKSURL == "" {
 		return nil, fmt.Errorf("CLERK_JWKS_URL is required (e.g. https://your-clerk-domain.clerk.accounts.dev/.well-known/jwks.json)")
+	}
+	if cfg.InternalAPISecret == "" {
+		return nil, fmt.Errorf("INTERNAL_API_SECRET is required")
 	}
 
 	return cfg, nil
