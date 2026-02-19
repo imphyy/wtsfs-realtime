@@ -1,0 +1,38 @@
+name: Deploy to Hetzner
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 65.21.151.120
+          username: deploy
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+
+            echo ">>> Pulling latest code..."
+            cd /var/www/wtsfs-realtime
+            git pull origin main
+
+            echo ">>> Building Go service..."
+            export PATH=$PATH:/usr/local/go/bin
+            CGO_ENABLED=0 GOOS=linux go build -o bin/server ./cmd/server
+
+            echo ">>> Restarting Go service..."
+            pm2 restart wtsfs-realtime
+
+            echo ">>> Deploy complete!"
+            pm2 status
