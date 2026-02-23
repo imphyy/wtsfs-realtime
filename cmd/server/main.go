@@ -154,7 +154,7 @@ func getEnv(key, fallback string) string {
 }
 
 // makeIsGMFunc returns a function that queries the campaigns table to check
-// if a given Clerk user ID is the GM (created_by) of a campaign.
+// if a given Clerk user ID is the GM (gm_id) of a campaign.
 // This reuses the same Postgres connection string as the Next.js app.
 func makeIsGMFunc(dsn string) func(userID, campaignID string) bool {
 	db, err := sql.Open("postgres", dsn)
@@ -170,7 +170,7 @@ func makeIsGMFunc(dsn string) func(userID, campaignID string) bool {
 
 		var isGM bool
 		err := db.QueryRowContext(ctx,
-			`SELECT created_by = $1 FROM campaigns WHERE id = $2`,
+			`SELECT gm_id = $1 FROM campaigns WHERE id = $2`,
 			userID, campaignID,
 		).Scan(&isGM)
 
