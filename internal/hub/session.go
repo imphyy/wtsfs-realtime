@@ -357,6 +357,26 @@ func (s *Session) handleMessage(cm ClientMessage) {
 		}
 		s.broadcastMapList()
 
+	case TypeSceneDarkness:
+		if !cm.client.IsGM {
+			s.sendError(cm.client, "forbidden", "only GMs can change scene darkness")
+			return
+		}
+		var p SceneDarknessPayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			s.sendError(cm.client, "invalid_payload", "scene.darkness requires valid payload")
+			return
+		}
+		// Clamp to [0, 1]
+		if p.DarknessLevel < 0 {
+			p.DarknessLevel = 0
+		}
+		if p.DarknessLevel > 1 {
+			p.DarknessLevel = 1
+		}
+		s.state.DarknessLevel = p.DarknessLevel
+		s.broadcast(msg, nil)
+
 	case TypePing:
 		cm.client.sendMessage(Message{Type: TypePong, CampaignID: s.campaignID})
 

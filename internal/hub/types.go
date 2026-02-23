@@ -23,8 +23,9 @@ const (
 	TypeMapSwitch   = "map.switch"  // GM switches to a saved map
 	TypeMapDelete   = "map.delete"  // GM removes a map from the library
 	TypeMapRename   = "map.rename"  // GM renames a map in the library
-	TypeMapList     = "map.list"    // server → clients: map library contents
-	TypePing        = "ping"
+	TypeMapList        = "map.list"        // server → clients: map library contents
+	TypeSceneDarkness  = "scene.darkness"  // GM sets ambient darkness level (0-1)
+	TypePing           = "ping"
 	TypePong        = "pong"
 	TypeStateSync   = "state.sync" // server → client on connect: full current state
 	TypeError       = "error"
@@ -134,6 +135,10 @@ type MapRenamePayload struct {
 	NewName string `json:"new_name"`
 }
 
+type SceneDarknessPayload struct {
+	DarknessLevel float64 `json:"darkness_level"`
+}
+
 // --- DD2VTT / Universal VTT map metadata ---
 
 type MapPoint struct {
@@ -192,16 +197,17 @@ type Token struct {
 }
 
 type SessionState struct {
-	CampaignID  string            `json:"campaign_id"`
-	MapID       string            `json:"map_id,omitempty"`
-	MapURL      string            `json:"map_url,omitempty"`
-	GridSize    float64           `json:"grid_size"`
-	MapWidth    float64           `json:"map_width"`
-	MapHeight   float64           `json:"map_height"`
-	Tokens      map[string]*Token `json:"tokens"`
-	FogZones    []FogZone         `json:"fog_zones"`
-	MapMetadata *MapMetadata      `json:"map_metadata,omitempty"`
-	SavedMaps   map[string]*SavedMap `json:"saved_maps,omitempty"`
+	CampaignID    string               `json:"campaign_id"`
+	MapID         string               `json:"map_id,omitempty"`
+	MapURL        string               `json:"map_url,omitempty"`
+	GridSize      float64              `json:"grid_size"`
+	MapWidth      float64              `json:"map_width"`
+	MapHeight     float64              `json:"map_height"`
+	DarknessLevel float64              `json:"darkness_level"`
+	Tokens        map[string]*Token    `json:"tokens"`
+	FogZones      []FogZone            `json:"fog_zones"`
+	MapMetadata   *MapMetadata         `json:"map_metadata,omitempty"`
+	SavedMaps     map[string]*SavedMap `json:"saved_maps,omitempty"`
 }
 
 // --- Map library types ---
