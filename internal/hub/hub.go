@@ -61,6 +61,9 @@ func (h *Hub) GetOrCreateSession(campaignID string) (*Session, error) {
 		if freshState.Tokens == nil {
 			freshState.Tokens = make(map[string]*Token)
 		}
+		if freshState.SavedMaps == nil {
+			freshState.SavedMaps = make(map[string]*SavedMap)
+		}
 	}
 
 	s := newSession(campaignID, freshState, h.store)

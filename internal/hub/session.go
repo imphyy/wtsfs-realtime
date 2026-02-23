@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -260,14 +261,101 @@ func (s *Session) handleMessage(cm ClientMessage) {
 			s.sendError(cm.client, "invalid_payload", "map.set requires valid payload")
 			return
 		}
+
+		// Save current map state into library before switching
+		s.saveCurrentMap()
+
+		// Set up the new map
 		s.state.MapID = p.MapID
 		s.state.MapURL = p.ImageURL
 		s.state.GridSize = p.GridSize
 		s.state.MapWidth = p.Width
 		s.state.MapHeight = p.Height
+		s.state.MapMetadata = p.MapMetadata
 		s.state.Tokens = make(map[string]*Token)
 		s.state.FogZones = nil
+
+		// Save the new map into library with a name
+		if s.state.SavedMaps == nil {
+			s.state.SavedMaps = make(map[string]*SavedMap)
+		}
+		name := p.Name
+		if name == "" {
+			name = fmt.Sprintf("Map %d", len(s.state.SavedMaps)+1)
+		}
+		s.state.SavedMaps[p.MapID] = &SavedMap{
+			Name:        name,
+			ImageURL:    p.ImageURL,
+			GridSize:    p.GridSize,
+			Width:       p.Width,
+			Height:      p.Height,
+			Tokens:      make(map[string]*Token),
+			FogZones:    nil,
+			MapMetadata: p.MapMetadata,
+		}
+
 		s.broadcast(msg, nil)
+		s.broadcastMapList()
+
+	case TypeMapSwitch:
+		if !cm.client.IsGM {
+			s.sendError(cm.client, "forbidden", "only GMs can switch maps")
+			return
+		}
+		var p MapSwitchPayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			s.sendError(cm.client, "invalid_payload", "map.switch requires valid payload")
+			return
+		}
+		if p.MapID == s.state.MapID {
+			return // already on this map
+		}
+		// Save current map state
+		s.saveCurrentMap()
+		// Load target map
+		if !s.loadMap(p.MapID) {
+			s.sendError(cm.client, "not_found", "map not found in library")
+			return
+		}
+		// Broadcast full state to all clients
+		s.broadcastStateSync()
+		s.broadcastMapList()
+
+	case TypeMapDelete:
+		if !cm.client.IsGM {
+			s.sendError(cm.client, "forbidden", "only GMs can delete maps")
+			return
+		}
+		var p MapDeletePayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			s.sendError(cm.client, "invalid_payload", "map.delete requires valid payload")
+			return
+		}
+		if p.MapID == s.state.MapID {
+			s.sendError(cm.client, "invalid_request", "cannot delete the currently active map")
+			return
+		}
+		if s.state.SavedMaps != nil {
+			delete(s.state.SavedMaps, p.MapID)
+		}
+		s.broadcastMapList()
+
+	case TypeMapRename:
+		if !cm.client.IsGM {
+			s.sendError(cm.client, "forbidden", "only GMs can rename maps")
+			return
+		}
+		var p MapRenamePayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			s.sendError(cm.client, "invalid_payload", "map.rename requires valid payload")
+			return
+		}
+		if s.state.SavedMaps != nil {
+			if saved, ok := s.state.SavedMaps[p.MapID]; ok {
+				saved.Name = p.NewName
+			}
+		}
+		s.broadcastMapList()
 
 	case TypePing:
 		cm.client.sendMessage(Message{Type: TypePong, CampaignID: s.campaignID})
@@ -340,7 +428,8 @@ func (s *Session) broadcastWhisper(msg Message, senderID, recipientID string) {
 	}
 }
 
-// sendStateSyncTo sends the full current VTT state to a single client.
+// sendStateSyncTo sends the full current VTT state to a single client,
+// followed by the map library list.
 func (s *Session) sendStateSyncTo(client *Client) {
 	payload, err := json.Marshal(s.state)
 	if err != nil {
@@ -352,6 +441,120 @@ func (s *Session) sendStateSyncTo(client *Client) {
 		CampaignID: s.campaignID,
 		Payload:    json.RawMessage(payload),
 	})
+	// Also send the map library to the new client
+	s.sendMapListTo(client)
+}
+
+// --- Map library helpers ---
+
+// saveCurrentMap saves the active map's state into the SavedMaps library.
+// No-op if there is no active map.
+func (s *Session) saveCurrentMap() {
+	if s.state.MapID == "" {
+		return
+	}
+	if s.state.SavedMaps == nil {
+		s.state.SavedMaps = make(map[string]*SavedMap)
+	}
+	// Preserve existing name if map was already saved
+	name := ""
+	if existing, ok := s.state.SavedMaps[s.state.MapID]; ok {
+		name = existing.Name
+	}
+	s.state.SavedMaps[s.state.MapID] = &SavedMap{
+		Name:        name,
+		ImageURL:    s.state.MapURL,
+		GridSize:    s.state.GridSize,
+		Width:       s.state.MapWidth,
+		Height:      s.state.MapHeight,
+		Tokens:      s.state.Tokens,
+		FogZones:    s.state.FogZones,
+		MapMetadata: s.state.MapMetadata,
+	}
+}
+
+// loadMap loads a saved map's state onto the active session fields.
+// Returns false if the map ID is not in the library.
+func (s *Session) loadMap(mapID string) bool {
+	saved, ok := s.state.SavedMaps[mapID]
+	if !ok {
+		return false
+	}
+	s.state.MapID = mapID
+	s.state.MapURL = saved.ImageURL
+	s.state.GridSize = saved.GridSize
+	s.state.MapWidth = saved.Width
+	s.state.MapHeight = saved.Height
+	s.state.MapMetadata = saved.MapMetadata
+	if saved.Tokens != nil {
+		s.state.Tokens = saved.Tokens
+	} else {
+		s.state.Tokens = make(map[string]*Token)
+	}
+	s.state.FogZones = saved.FogZones
+	return true
+}
+
+// broadcastStateSync sends the full VTT state to all connected clients.
+// Used after map switch so all clients get the new map's tokens/fog.
+func (s *Session) broadcastStateSync() {
+	payload, err := json.Marshal(s.state)
+	if err != nil {
+		slog.Error("failed to marshal state sync", "err", err)
+		return
+	}
+	msg := Message{
+		Type:       TypeStateSync,
+		CampaignID: s.campaignID,
+		Payload:    json.RawMessage(payload),
+	}
+	s.broadcast(msg, nil)
+}
+
+// broadcastMapList sends the map library contents to all connected clients.
+func (s *Session) broadcastMapList() {
+	payload, err := json.Marshal(s.buildMapListPayload())
+	if err != nil {
+		slog.Error("failed to marshal map list", "err", err)
+		return
+	}
+	s.broadcast(Message{
+		Type:       TypeMapList,
+		CampaignID: s.campaignID,
+		Payload:    json.RawMessage(payload),
+	}, nil)
+}
+
+// sendMapListTo sends the map library to a single client.
+func (s *Session) sendMapListTo(client *Client) {
+	payload, err := json.Marshal(s.buildMapListPayload())
+	if err != nil {
+		slog.Error("failed to marshal map list", "err", err)
+		return
+	}
+	client.sendMessage(Message{
+		Type:       TypeMapList,
+		CampaignID: s.campaignID,
+		Payload:    json.RawMessage(payload),
+	})
+}
+
+// buildMapListPayload constructs the lightweight map library summary.
+func (s *Session) buildMapListPayload() MapListPayload {
+	entries := make([]MapListEntry, 0)
+	if s.state.SavedMaps != nil {
+		for id, m := range s.state.SavedMaps {
+			entries = append(entries, MapListEntry{
+				MapID:    id,
+				Name:     m.Name,
+				ImageURL: m.ImageURL,
+			})
+		}
+	}
+	return MapListPayload{
+		Maps:        entries,
+		ActiveMapID: s.state.MapID,
+	}
 }
 
 // sendChatHistoryTo fetches the last N messages from DB and sends them to a single client.
